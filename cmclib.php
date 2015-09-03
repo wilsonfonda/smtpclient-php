@@ -1,44 +1,44 @@
 <?php
 include("Mail.php");
 
+# SMTP transport class using Mail.php that handle redundancy of IP addresses 
+
 class Transport {
     
-    private $factory = null;
+    private $method ='';
+    private $smtpinfo = [];
     private $isSuccess = 0;
     function __construct($method, $smtpinfo)
     {
-        $this->factory =& Mail::factory($method, $smtpinfo);
+        $this->method = $method;
+        $this->smtpinfo = $smtpinfo;
     }
 
     function send($recipients, $headers, $mailmsg)
     {
-        $iplist = $this->resolveDNS($this->factory->host);
-        if (count($iplist)==0)
-            throw new Exception('Cannot find ipaddr: ' . $headers["host"]);
-        foreach ($iplist as &$ipaddr)
+        $iplist = $this->resolveDNS($this->smtpinfo['host']);
+        if (!is_array($iplist) || count($iplist)<=1)
+            file_put_contents('php://stderr','Error: Cannot find ipaddr: ' . $this->smtpinfo["host"]."\n");
+        else
         {
-            try
+            array_unshift($iplist,"111.222.333.444");
+            foreach ($iplist as &$ipaddr)
             {
-                $this->factory->host = $ipaddr;
-                $mail = $this->factory->send($recipients, $headers, $mailmsg);
+                $this->smtpinfo['host'] = $ipaddr;
+                $factory =& Mail::factory($this->method, $this->smtpinfo);
+                $mail = $factory->send($recipients, $headers, $mailmsg);
                 if (PEAR::isError($mail)) {
-                    echo('<p>' . $mail->getMessage() . '</p>');
-                    $this->factory["host"] = '';
-                    continue;
+                    file_put_contents('php://stderr',$mail->getMessage()."\n");
+                    $this->smtpinfo['host'] = '';
                 } else {
-                    echo('<p>Message successfully sent!</p>');
+                    print("Message successfully sent!\n");
                     $isSuccess=1;
                     break;
                 }
-            } catch (Exception $e) {
-                $errmsg = $errmsg . $ipaddr . ' failed: '.get_class($e).':'.$e->getMessage();
-                file_put_contents('php://stderr',$errmsg);
-                $this->factory["host"] = '';
-                continue;
-            }    
+            }
         }
         if ($isSuccess == 0)
-            file_put_contents('php://stderr','ip address is not available');
+            file_put_contents('php://stderr',"ip address is not available\n");
     }
 
     function resolveDNS($hostname)
@@ -49,12 +49,11 @@ class Transport {
             if (count($ipaddrlist) > 0)
                 $iplist = $ipaddrlist;
             else
-                throw new Exception('no IP address assign to the hostname');
+                file_put_contents('php://stderr',"no IP address assign to the hostname\n");
         } catch (Exception $e) {
             if($this->debuglevel>0)
-                file_put_contents('php://stderr', 'gethostbyname_ex failed: ' . $e->getMessage() . 'hostname=' . $hostname);
+                file_put_contents('php://stderr', 'gethostbyname_ex failed: ' . $e->getMessage() . 'hostname=' . $hostname."\n");
         }
-        print_r($iplist);
         if (count($iplist)>1)
             shuffle($iplist);
         return $iplist;
