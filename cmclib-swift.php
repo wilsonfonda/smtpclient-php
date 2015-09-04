@@ -1,39 +1,39 @@
 <?php
-include("Mail.php");
+require_once 'lib/swift_required.php';
 
-# SMTP transport class using Mail.php that handle redundancy of IP addresses 
+# SMTP transport class using swiftMailer that handle redundancy of IP addresses 
 
-class Transport {
+class CMCMailer {
     
-    private $method ='';
-    private $smtpinfo = [];
+    private $transport = null;
     private $isSuccess = 0;
-    function __construct($method, $smtpinfo)
+    function __construct($transport)
     {
-        $this->method = $method;
-        $this->smtpinfo = $smtpinfo;
+        $this->transport = $transport;
     }
 
-    function send($recipients, $headers, $mailmsg)
+    function send($message, &$failedRecipients)
     {
-        $iplist = $this->resolveDNS($this->smtpinfo['host']);
+        $iplist = $this->resolveDNS($this->transport->getHost());
         if (!is_array($iplist) || count($iplist)<=1)
-            file_put_contents('php://stderr','Error: Cannot find ipaddr: ' . $this->smtpinfo["host"]."\n");
+            file_put_contents('php://stderr','Error: Cannot find ipaddr: ' . $this->transport->getHost()."\n");
         else
         {
-            array_unshift($iplist,"111.222.333.444");
             foreach ($iplist as &$ipaddr)
             {
-                $this->smtpinfo['host'] = $ipaddr;
-                $factory =& Mail::factory($this->method, $this->smtpinfo);
-                $mail = $factory->send($recipients, $headers, $mailmsg);
-                if (PEAR::isError($mail)) {
-                    file_put_contents('php://stderr',$mail->getMessage()."\n");
-                    $this->smtpinfo['host'] = '';
-                } else {
-                    print("Message successfully sent!\n");
+                try
+                {
+                    $this->transport->setHost($ipaddr);
+                    $mailer = Swift_Mailer::newInstance($this->transport);
+                    $mailer->send($message, $failedRecipients);
                     $isSuccess=1;
+                    print("\nMessage sent successfully!\n");
                     break;
+                }catch(Swift_TransportException $e)
+                {
+                    
+                    $failedRecipients = "\n Error in accessing IP: ".$ipaddr."\n".$e."\n".$failedRecipients;
+                    continue;   
                 }
             }
         }
